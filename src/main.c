@@ -31,7 +31,7 @@ static t_file *getFileInfo(const char *fileName) {
 
 	// Map file to memory
 	fputs("[+] Mapping file to memory\n", stdout);
-	if ((fileInfo.mapping = mmap(NULL, fileInfo.size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0)) == MAP_FAILED) {
+	if ((fileInfo.mapping = mmap(NULL, (size_t)fileInfo.size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0)) == MAP_FAILED) {
 		perror("[-] mmap");
 		exit(EXIT_FAILURE);
 	}
@@ -56,7 +56,7 @@ static void createWoody(const t_file *fileInfo) {
 	}
 
 	// Write encrypted data to new file
-	if (write(fd, fileInfo->mapping, fileInfo->size) == -1) {
+	if (write(fd, fileInfo->mapping, (size_t)fileInfo->size) == -1) {
 		perror("[-] write");
 		exit(EXIT_FAILURE);
 	}
@@ -70,7 +70,7 @@ static void createWoody(const t_file *fileInfo) {
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		fprintf(stderr, "usage: ./woody_woodpacker <PROG>\n");
+		fputs("usage: ./woody_woodpacker <PROG>\n", stderr);
 		exit(EXIT_FAILURE);
 	}
 
@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
 	elfCommon(fileInfo);
 	createWoody(fileInfo);
 
-	if (munmap((void *)fileInfo->mapping, fileInfo->size) == -1) {
+	if (munmap((void *)fileInfo->mapping, (size_t)fileInfo->size) == -1) {
 		perror("[-] munmap");
 		exit(EXIT_FAILURE);
 	}

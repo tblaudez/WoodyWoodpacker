@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #include <elf.h>
 #include <stdbool.h>
-#include <string.h>
 #include "woody.h"
+#include "libft.h"
 
 bool gSwapEndian = false;
 
@@ -18,7 +18,7 @@ void elfCommon(const t_file *fileInfo)
 	gSwapEndian = (fileInfo->mapping[EI_DATA] == ELFDATA2MSB);
 
 	fputs("[+] Checking file type", stdout);
-	if (strncmp((const char*)fileInfo->mapping, ELFMAG, SELFMAG) != 0) {
+	if (ft_strncmp((const char*)fileInfo->mapping, ELFMAG, SELFMAG) != 0) {
 		fputs("\n[-] Invalid file format. Only ELF is supported\n", stderr);
 		exit(EXIT_FAILURE);
 	}

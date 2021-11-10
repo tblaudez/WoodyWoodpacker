@@ -13,21 +13,29 @@
 TARGET := woody_woodpacker
 
 CC ?= gcc
-CFLAGS ?= -I include/ -ggdb -Wall -Wextra -Werror
+CFLAGS ?= -I include/ -I Libft/include -Wall -Wextra -Werror
 LDFLAGS ?=
 
 AS ?= nasm
-ASFLAGS ?= -felf64 -g -Fdwarf
+ASFLAGS ?= -felf64 -I src/asm
+
+LIBFT := Libft/libft.a
+LIBFT_HEADERS := $(shell find Libft/include -name "*.h")
+LIBFT_SOURCES := $(shell find Libft/src -name "*.c")
+LIBFT_OBJECTS := $(LIBFT_SOURCES:.c=.o)
 
 HEADERS := $(shell find include/ -name "*.h")
 C_SOURCES := $(shell find src/ -name "*.c")
-ASM_SOURCES := $(shell find src/ -name "*.asm")
+ASM_SOURCES := $(shell find src/ \( -name "*.asm" -and -not -name "RC4.asm" \))
 OBJECTS := $(C_SOURCES:.c=.o) $(ASM_SOURCES:.asm=.o)
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) $(HEADERS)
-	$(CC) $(LDFLAGS) $(OBJECTS) -o $@
+$(TARGET): $(LIBFT) $(OBJECTS) $(HEADERS)
+	$(CC) $(LDFLAGS) $(OBJECTS) $(LIBFT) -o $@
+
+$(LIBFT):
+	@$(MAKE) --no-print-directory -C $(dir $(LIBFT))
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -37,9 +45,11 @@ $(TARGET): $(OBJECTS) $(HEADERS)
 
 clean:
 	@rm -vf $(OBJECTS)
+	@$(MAKE) --no-print-directory -C $(dir $(LIBFT)) clean
 
 fclean: clean
 	@rm -vf $(TARGET)
+	@$(MAKE) --no-print-directory -C $(dir $(LIBFT)) fclean
 
 re: fclean all
 

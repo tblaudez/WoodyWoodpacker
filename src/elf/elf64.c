@@ -8,8 +8,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <memory.h>
 #include "woody.h"
+#include "libft.h"
 
 extern bool gSwapEndian;
 
@@ -40,7 +40,7 @@ static Elf64_Phdr *findUsableSegment(Elf64_Ehdr *ehdr) {
 	Elf64_Phdr *phdr = (void *)ehdr + SWAP64(ehdr->e_phoff);
 
 	fputs("[+] Looking for code cave", stdout);
-	for (size_t i = 0; i < SWAP16(ehdr->e_phnum) - 1; i++) {
+	for (int i = 0; i < SWAP16(ehdr->e_phnum) - 1; i++) {
 		if (SWAP32(phdr[i].p_type) == PT_LOAD && SWAP32(phdr[i + 1].p_type) == PT_LOAD && SWAP32(phdr[i].p_flags & PF_X)) {
 			uint64_t codeCaveOffset = SWAP64(phdr[i].p_offset) + SWAP64(phdr[i].p_filesz);
 			uint64_t codeCaveSize = SWAP64(phdr[i+1].p_offset) - (codeCaveOffset);
@@ -60,7 +60,7 @@ static const Elf64_Shdr *findTextSection(Elf64_Ehdr *ehdr) {
 
 	fputs("[+] Looking for program text section", stdout);
 	for (size_t i = 0; i < SWAP16(ehdr->e_shnum); i++) {
-		if (!strcmp(shdrstrtab + SWAP32(shdr[i].sh_name), ".text")) {
+		if (!ft_strcmp(shdrstrtab + SWAP32(shdr[i].sh_name), ".text")) {
 			fputs(" => OK\n", stdout);
 			return &shdr[i];
 		}
@@ -73,33 +73,33 @@ static void injectPayloadAtOffset(size_t offset, const Elf64_Ehdr *ehdr, const E
 
 	// Copy payload in code cave
 	printf("[+] Injecting payload at offset %#lX\n", offset);
-	memcpy((void*)ehdr + offset, (void *) payload, payloadSize);
+	ft_memcpy((void*)ehdr + offset, (void *) payload, payloadSize);
 
 	// Edit Mprotect hard-coded variable
 	int32_t textSectionAlignedAddress = SWAP64(textSection->sh_addr) & ~(4096-1);
 	int32_t textSectionRelativeToMprotect = SWAP32(textSectionAlignedAddress - (offset + MPROTECT_DATA_OFFSET));
 	int32_t textSectionAlignedSize = SWAP32(ALIGN(SWAP64(textSection->sh_size) + (SWAP64(textSection->sh_addr) - textSectionAlignedAddress), 4096));
 	fputs("[+] Setting up mprotect() \n", stdout);
-	memcpy((void*)ehdr + offset + MPROTECT_DATA_OFFSET - 4, &textSectionRelativeToMprotect, 4);
-	memcpy((void*)ehdr + offset + MPROTECT_DATA_SIZE_OFFSET - 4, &textSectionAlignedSize, 4);
+	ft_memcpy((void*)ehdr + offset + MPROTECT_DATA_OFFSET - 4, &textSectionRelativeToMprotect, 4);
+	ft_memcpy((void*)ehdr + offset + MPROTECT_DATA_SIZE_OFFSET - 4, &textSectionAlignedSize, 4);
 
 	// Edit RC4 hard-coded variable
 	uint32_t keySize = SWAP32(KEY_SIZE);
 	int32_t textSectionRelativeToRC4 = SWAP32(SWAP64(textSection->sh_addr) - (offset + RC4_DATA_OFFSET));
 	uint32_t textSectionSize = SWAP32(SWAP64(textSection->sh_size));
 	fputs("[+] Setting up RC4 decryptor\n", stdout);
-	memcpy((void*)ehdr + offset + RC4_DATA_OFFSET - 4, &textSectionRelativeToRC4, 4);
-	memcpy((void*)ehdr + offset + RC4_DATA_SIZE_OFFSET - 4, &textSectionSize, 4);
-	memcpy((void*)ehdr + offset + RC4_KEY_SIZE_OFFSET - 4, &keySize, 4);
+	ft_memcpy((void*)ehdr + offset + RC4_DATA_OFFSET - 4, &textSectionRelativeToRC4, 4);
+	ft_memcpy((void*)ehdr + offset + RC4_DATA_SIZE_OFFSET - 4, &textSectionSize, 4);
+	ft_memcpy((void*)ehdr + offset + RC4_KEY_SIZE_OFFSET - 4, &keySize, 4);
 
 	// Edit jump hard-coded variable
 	int32_t oldEntryRelativeToJump = SWAP32(SWAP64(ehdr->e_entry) - (offset + PAYLOAD_JUMP_OFFSET));
 	printf("[+] Setting up jump to old program entry => %#lX\n", ehdr->e_entry);
-	memcpy((void*)ehdr + offset + PAYLOAD_JUMP_OFFSET - 4, &oldEntryRelativeToJump, 4);
+	ft_memcpy((void*)ehdr + offset + PAYLOAD_JUMP_OFFSET - 4, &oldEntryRelativeToJump, 4);
 
 	// Fill data with encryption key
 	fputs("[+] Filling payload with encryption key\n", stdout);
-	memcpy((void*)ehdr + offset + payloadSize - 0x100, encryptionKey, KEY_SIZE);
+	ft_memcpy((void*)ehdr + offset + payloadSize - 0x100, encryptionKey, KEY_SIZE);
 
 }
 
@@ -109,7 +109,7 @@ void elf64(const t_file *fileInfo) {
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr *) fileInfo->mapping;
 	const Elf64_Shdr *textSection = findTextSection(ehdr);
 	const Elf64_Phdr *segment = findUsableSegment(ehdr);
-	const u_char *encryptionKey = (u_char *)generateEncryptionKey();
+	const u_char *encryptionKey = generateEncryptionKey();
 
 	injectPayloadAtOffset(SWAP64(segment->p_offset) + SWAP64(segment->p_filesz), ehdr, textSection, encryptionKey);
 
