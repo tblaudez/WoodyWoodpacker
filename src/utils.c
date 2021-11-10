@@ -24,16 +24,23 @@ u_char *generateEncryptionKey(void) {
 	static u_char encryptionBuffer[KEY_SIZE];
 	int fd;
 
+	fputs("[+] Generating encryption key", stdout);
+
 	if ((fd = open("/dev/urandom", O_RDONLY)) == -1) {
-		perror("open");
+		perror("\n[-] open");
 		exit(EXIT_FAILURE);
 	}
 
 	if (read(fd, encryptionBuffer, KEY_SIZE) == -1) {
-		perror("read");
+		perror("\n[-] read");
 		exit(EXIT_FAILURE);
 	}
 
-	close(fd);
+	if (close(fd) == -1) {
+		perror("\n[-] read");
+		exit(EXIT_FAILURE);
+	}
+
+	displayHexData(" => ", encryptionBuffer, KEY_SIZE);
 	return encryptionBuffer;
 }

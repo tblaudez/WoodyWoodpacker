@@ -20,10 +20,9 @@
 
 
 #define ALIGN(address, base) (((address) + (base) - 1) & ~((base) - 1))
-#define SWAP8(x) (g_swap_endian ? x : x)
-#define SWAP16(x) (g_swap_endian ? __builtin_bswap16(x) : x)
-#define SWAP32(x) (g_swap_endian ? __builtin_bswap32(x) : x)
-#define SWAP64(x) (g_swap_endian ? __builtin_bswap64(x) : x)
+#define SWAP16(x) (gSwapEndian ? __builtin_bswap16(x) : x)
+#define SWAP32(x) (gSwapEndian ? __builtin_bswap32(x) : x)
+#define SWAP64(x) (gSwapEndian ? __builtin_bswap64(x) : x)
 
 
 typedef struct {

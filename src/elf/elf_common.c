@@ -8,25 +8,33 @@
 #include <stdlib.h>
 #include <elf.h>
 #include <stdbool.h>
+#include <string.h>
 #include "woody.h"
 
-bool g_swap_endian = false;
+bool gSwapEndian = false;
 
 void elfCommon(const t_file *fileInfo)
 {
-	g_swap_endian = (fileInfo->mapping[EI_DATA] == ELFDATA2MSB);
+	gSwapEndian = (fileInfo->mapping[EI_DATA] == ELFDATA2MSB);
 
-	if (!(fileInfo->mapping[EI_DATA] == ELFDATA2LSB || fileInfo->mapping[EI_DATA] == ELFDATA2MSB)) {
-		fprintf(stderr, "woody_woodpacker: '%s': Invalid file endianess\n", fileInfo->name);
+	fputs("[+] Checking file type", stdout);
+	if (strncmp((const char*)fileInfo->mapping, ELFMAG, SELFMAG) != 0) {
+		fputs("\n[-] Invalid file format. Only ELF is supported\n", stderr);
 		exit(EXIT_FAILURE);
 	}
 
-	if (fileInfo->mapping[EI_VERSION] != EV_CURRENT) {
-		fprintf(stderr, "woody_woodpacker: '%s': Invalid file version\n", fileInfo->name);
+	if (!(fileInfo->mapping[EI_DATA] == ELFDATA2LSB || fileInfo->mapping[EI_DATA] == ELFDATA2MSB)) {
+		fputs("\n[-] Invalid file endianess. File might be corrupted\n", stderr);
 		exit(EXIT_FAILURE);
 	}
 
 	if (fileInfo->mapping[EI_CLASS] == ELFCLASS64) {
+		fputs(" => ELF64 detected\n", stdout);
 		elf64(fileInfo);
+	} else if (fileInfo->mapping[EI_CLASS] == ELFCLASS32) {
+		fputs(" => ELF32 detected\n", stdout);
+	} else {
+		fputs(" => INVALID\n[-] Invalid file class. Only ELF64 and ELF32 supported\n", stderr);
+		exit(EXIT_FAILURE);
 	}
 }

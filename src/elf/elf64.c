@@ -11,91 +11,113 @@
 #include <memory.h>
 #include "woody.h"
 
-#define PAYLOAD_OFFSET_IN_FILE (loadSegment->p_offset + loadSegment->p_filesz)
-#define PAYLOAD_ADDRESS ((void*)ehdr + PAYLOAD_OFFSET_IN_FILE)
-#define PAYLOAD_ADDRESS_END (PAYLOAD_ADDRESS + payloadSize)
-
-extern bool g_swap_endian;
+extern bool gSwapEndian;
 
 static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) {
+
+	fputs("[+] Checking for file corruption", stdout);
 	// Offset too big or too little
-	if (SWAP64(ehdr->e_shoff) >= (fileInfo->size - sizeof(Elf64_Shdr))
-		|| SWAP64(ehdr->e_shoff) < (sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr))) {
-		fprintf(stderr, "woody_woodpacker: '%s': Invalid section header table offset\n", fileInfo->name);
+	if (SWAP64(ehdr->e_shoff) >= (fileInfo->size - sizeof(Elf64_Shdr)) || SWAP64(ehdr->e_shoff) < (sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr))) {
+		fputs("\n[-] Invalid section header table offset\n", stderr);
 		exit(EXIT_FAILURE);
 	}
 
 	// No sections
 	if (SWAP16(ehdr->e_shnum) == 0) {
-		fprintf(stderr, "woody_woodpacker: '%s': Invalid section header table entry count\n", fileInfo->name);
+		fputs("\n[-] Invalid section header table entries\n", stderr);
 		exit(EXIT_FAILURE);
 	}
 
 	// Invalid type
 	if (!(SWAP16(ehdr->e_type) >= 1 && SWAP16(ehdr->e_type) <= 4)) {
-		fprintf(stderr, "woody_woodpacker: '%s': Invalid file type\n", fileInfo->name);
+		fputs("\n[-] Invalid file type\n", stderr);
 		exit(EXIT_FAILURE);
 	}
+	fputs(" => OK\n", stdout);
 }
 
-static Elf64_Phdr *findUsableSegment(Elf64_Phdr *phdr, size_t size) {
-	for (size_t i = 0; i < size - 1; i++) {
-		if (phdr[i].p_type == PT_LOAD && phdr[i + 1].p_type == PT_LOAD && phdr[i].p_flags & PF_X)
-			return &phdr[i];
+static Elf64_Phdr *findUsableSegment(Elf64_Ehdr *ehdr) {
+	Elf64_Phdr *phdr = (void *)ehdr + SWAP64(ehdr->e_phoff);
+
+	fputs("[+] Looking for code cave", stdout);
+	for (size_t i = 0; i < SWAP16(ehdr->e_phnum) - 1; i++) {
+		if (SWAP32(phdr[i].p_type) == PT_LOAD && SWAP32(phdr[i + 1].p_type) == PT_LOAD && SWAP32(phdr[i].p_flags & PF_X)) {
+			uint64_t codeCaveOffset = SWAP64(phdr[i].p_offset) + SWAP64(phdr[i].p_filesz);
+			uint64_t codeCaveSize = SWAP64(phdr[i+1].p_offset) - (codeCaveOffset);
+			if (codeCaveSize > payloadSize) {
+				printf(" => FOUND (offset : %#lX / size : %ld bytes)\n", codeCaveOffset, codeCaveSize);
+				return &phdr[i];
+			}
+		}
 	}
-	fputs("Could not find suitable code cave\n", stderr);
+	fputs("\n[-] Could not find suitable code cave\n", stderr);
 	exit(EXIT_FAILURE);
 }
 
-static Elf64_Shdr *findTextSection(Elf64_Shdr *shdr, size_t size, const char *shdrstrtab) {
-	for (size_t i = 0; i < size; i++) {
-		if (strcmp(shdrstrtab + shdr[i].sh_name, ".text") == 0)
+static const Elf64_Shdr *findTextSection(Elf64_Ehdr *ehdr) {
+	const Elf64_Shdr *shdr = (void *)ehdr + SWAP64(ehdr->e_shoff);
+	const char *shdrstrtab = (void *) ehdr + SWAP64(shdr[SWAP16(ehdr->e_shstrndx)].sh_offset);
+
+	fputs("[+] Looking for program text section", stdout);
+	for (size_t i = 0; i < SWAP16(ehdr->e_shnum); i++) {
+		if (!strcmp(shdrstrtab + SWAP32(shdr[i].sh_name), ".text")) {
+			fputs(" => OK\n", stdout);
 			return &shdr[i];
+		}
 	}
-	fputs("Could not find .text section\n", stderr);
+	fputs("\n[-] Could not find program text section\n", stderr);
 	exit(EXIT_FAILURE);
+}
+
+static void injectPayloadAtOffset(size_t offset, const Elf64_Ehdr *ehdr, const Elf64_Shdr *textSection, const u_char *encryptionKey) {
+
+	// Copy payload in code cave
+	printf("[+] Injecting payload at offset %#lX\n", offset);
+	memcpy((void*)ehdr + offset, (void *) payload, payloadSize);
+
+	// Edit Mprotect hard-coded variable
+	int32_t textSectionAlignedAddress = SWAP64(textSection->sh_addr) & ~(4096-1);
+	int32_t textSectionRelativeToMprotect = SWAP32(textSectionAlignedAddress - (offset + MPROTECT_DATA_OFFSET));
+	int32_t textSectionAlignedSize = SWAP32(ALIGN(SWAP64(textSection->sh_size) + (SWAP64(textSection->sh_addr) - textSectionAlignedAddress), 4096));
+	fputs("[+] Setting up mprotect() \n", stdout);
+	memcpy((void*)ehdr + offset + MPROTECT_DATA_OFFSET - 4, &textSectionRelativeToMprotect, 4);
+	memcpy((void*)ehdr + offset + MPROTECT_DATA_SIZE_OFFSET - 4, &textSectionAlignedSize, 4);
+
+	// Edit RC4 hard-coded variable
+	uint32_t keySize = SWAP32(KEY_SIZE);
+	int32_t textSectionRelativeToRC4 = SWAP32(SWAP64(textSection->sh_addr) - (offset + RC4_DATA_OFFSET));
+	uint32_t textSectionSize = SWAP32(SWAP64(textSection->sh_size));
+	fputs("[+] Setting up RC4 decryptor\n", stdout);
+	memcpy((void*)ehdr + offset + RC4_DATA_OFFSET - 4, &textSectionRelativeToRC4, 4);
+	memcpy((void*)ehdr + offset + RC4_DATA_SIZE_OFFSET - 4, &textSectionSize, 4);
+	memcpy((void*)ehdr + offset + RC4_KEY_SIZE_OFFSET - 4, &keySize, 4);
+
+	// Edit jump hard-coded variable
+	int32_t oldEntryRelativeToJump = SWAP32(SWAP64(ehdr->e_entry) - (offset + PAYLOAD_JUMP_OFFSET));
+	printf("[+] Setting up jump to old program entry => %#lX\n", ehdr->e_entry);
+	memcpy((void*)ehdr + offset + PAYLOAD_JUMP_OFFSET - 4, &oldEntryRelativeToJump, 4);
+
+	// Fill data with encryption key
+	fputs("[+] Filling payload with encryption key\n", stdout);
+	memcpy((void*)ehdr + offset + payloadSize - 0x100, encryptionKey, KEY_SIZE);
+
 }
 
 void elf64(const t_file *fileInfo) {
 	checkFileCorruption((Elf64_Ehdr *) fileInfo->mapping, fileInfo);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr *) fileInfo->mapping;
-	Elf64_Shdr *shdr = (void *) ehdr + ehdr->e_shoff;
-	Elf64_Phdr *phdr = (void *) ehdr + ehdr->e_phoff;
+	const Elf64_Shdr *textSection = findTextSection(ehdr);
+	const Elf64_Phdr *segment = findUsableSegment(ehdr);
+	const u_char *encryptionKey = (u_char *)generateEncryptionKey();
 
-	u_char *encryptionKey = (u_char *)generateEncryptionKey();
-	Elf64_Phdr *loadSegment = findUsableSegment(phdr, ehdr->e_phnum);
-	Elf64_Shdr *textSection = findTextSection(shdr, ehdr->e_shnum, (void *) ehdr + shdr[ehdr->e_shstrndx].sh_offset);
-
-	// Copy payload in code cave
-	memcpy(PAYLOAD_ADDRESS, (void *) payload, payloadSize);
-
-	// Edit Mprotect hard-coded variable
-	int32_t textSectionAlignedAddress = textSection->sh_addr & ~(4096-1);
-	int32_t textSectionRelativeToMprotect = textSectionAlignedAddress - (PAYLOAD_OFFSET_IN_FILE + MPROTECT_DATA_OFFSET);
-	int32_t textSectionAlignedSize = ALIGN(textSection->sh_size + (textSection->sh_addr - textSectionAlignedAddress), 4096);
-
-	memcpy(PAYLOAD_ADDRESS + MPROTECT_DATA_OFFSET - 4, &textSectionRelativeToMprotect, 4);
-	memcpy(PAYLOAD_ADDRESS + MPROTECT_DATA_SIZE_OFFSET - 4, &textSectionAlignedSize, 4);
-
-	// Edit RC4 hard-coded variable
-	uint32_t keySize = KEY_SIZE;
-	int32_t textSectionRelativeToRC4 = textSection->sh_addr - (PAYLOAD_OFFSET_IN_FILE + RC4_DATA_OFFSET);
-	memcpy(PAYLOAD_ADDRESS + RC4_DATA_OFFSET - 4, &textSectionRelativeToRC4, 4);
-	memcpy(PAYLOAD_ADDRESS + RC4_DATA_SIZE_OFFSET - 4, &textSection->sh_size, 4);
-	memcpy(PAYLOAD_ADDRESS + RC4_KEY_SIZE_OFFSET - 4, &keySize, 4);
-
-	// Edit jump hard-coded variable
-	int32_t oldEntryRelativeToJump = ehdr->e_entry - (PAYLOAD_OFFSET_IN_FILE + PAYLOAD_JUMP_OFFSET);
-	memcpy(PAYLOAD_ADDRESS + PAYLOAD_JUMP_OFFSET - 4, &oldEntryRelativeToJump, 4);
-
-	// Fill data with encryption key
-	memcpy(PAYLOAD_ADDRESS_END - 0x100, encryptionKey, KEY_SIZE);
+	injectPayloadAtOffset(SWAP64(segment->p_offset) + SWAP64(segment->p_filesz), ehdr, textSection, encryptionKey);
 
 	// Set entry to "....WOODY...." print
-	ehdr->e_entry = PAYLOAD_OFFSET_IN_FILE + PAYLOAD_WOODY_OFFSET;
-	printf("New file entry : %#lX\n", ehdr->e_entry);
+	ehdr->e_entry = segment->p_offset + segment->p_filesz + PAYLOAD_WOODY_OFFSET;
+	printf("[+] Setting new program entry => %#lX\n", ehdr->e_entry);
 
 	// Encrypt .text section
+	fputs("[+] Encrypting program text section\n", stdout);
 	RC4((void *)ehdr + textSection->sh_addr, textSection->sh_size, encryptionKey, KEY_SIZE);
 }
