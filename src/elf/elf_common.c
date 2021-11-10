@@ -14,7 +14,7 @@ bool g_swap_endian = false;
 
 void elfCommon(const t_file *fileInfo)
 {
-	g_swap_endian = false;//(fileInfo->mapping[EI_DATA] == ELFDATA2MSB);
+	g_swap_endian = (fileInfo->mapping[EI_DATA] == ELFDATA2MSB);
 
 	if (!(fileInfo->mapping[EI_DATA] == ELFDATA2LSB || fileInfo->mapping[EI_DATA] == ELFDATA2MSB)) {
 		fprintf(stderr, "woody_woodpacker: '%s': Invalid file endianess\n", fileInfo->name);
@@ -29,5 +29,4 @@ void elfCommon(const t_file *fileInfo)
 	if (fileInfo->mapping[EI_CLASS] == ELFCLASS64) {
 		elf64(fileInfo);
 	}
-
 }

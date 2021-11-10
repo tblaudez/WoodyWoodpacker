@@ -11,7 +11,10 @@
 #include <memory.h>
 #include "woody.h"
 
-#define PAYLOAD_START ((void*)ehdr + ehdr->e_entry)
+#define PAYLOAD_OFFSET_IN_FILE (loadSegment->p_offset + loadSegment->p_filesz)
+#define PAYLOAD_ADDRESS ((void*)ehdr + PAYLOAD_OFFSET_IN_FILE)
+#define PAYLOAD_ADDRESS_END (PAYLOAD_ADDRESS + payloadSize)
+
 extern bool g_swap_endian;
 
 static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) {
@@ -37,10 +40,8 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 
 static Elf64_Phdr *findUsableSegment(Elf64_Phdr *phdr, size_t size) {
 	for (size_t i = 0; i < size - 1; i++) {
-		if (phdr[i].p_type == PT_LOAD && phdr[i + 1].p_type == PT_LOAD && phdr[i].p_flags & PF_X) {
-			printf("Cave Code size : %lu\n", phdr[i+1].p_offset - (phdr[i].p_offset + phdr[i].p_filesz));
+		if (phdr[i].p_type == PT_LOAD && phdr[i + 1].p_type == PT_LOAD && phdr[i].p_flags & PF_X)
 			return &phdr[i];
-		}
 	}
 	fputs("Could not find suitable code cave\n", stderr);
 	exit(EXIT_FAILURE);
@@ -56,56 +57,45 @@ static Elf64_Shdr *findTextSection(Elf64_Shdr *shdr, size_t size, const char *sh
 }
 
 void elf64(const t_file *fileInfo) {
-	checkFileCorruption((Elf64_Ehdr *)fileInfo->mapping, fileInfo);
+	checkFileCorruption((Elf64_Ehdr *) fileInfo->mapping, fileInfo);
 
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)fileInfo->mapping;
-	Elf64_Shdr *shdr = (void *)ehdr + ehdr->e_shoff;
-	Elf64_Phdr *phdr = (void *)ehdr + ehdr->e_phoff;
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr *) fileInfo->mapping;
+	Elf64_Shdr *shdr = (void *) ehdr + ehdr->e_shoff;
+	Elf64_Phdr *phdr = (void *) ehdr + ehdr->e_phoff;
 
+	u_char *encryptionKey = (u_char *)generateEncryptionKey();
 	Elf64_Phdr *loadSegment = findUsableSegment(phdr, ehdr->e_phnum);
-	Elf64_Shdr *textSection = findTextSection(shdr, ehdr->e_shnum, (void *)ehdr + shdr[ehdr->e_shstrndx].sh_offset);
-	int32_t oldEntry = ehdr->e_entry;
-
-	/*// Set new program entry
-	ehdr->e_entry = loadSegment->p_offset + loadSegment->p_filesz;
-	printf("Old entry : %#X\n", oldEntry);
-	printf("New entry : %#lX\n\n", ehdr->e_entry);
+	Elf64_Shdr *textSection = findTextSection(shdr, ehdr->e_shnum, (void *) ehdr + shdr[ehdr->e_shstrndx].sh_offset);
 
 	// Copy payload in code cave
-	memcpy(PAYLOAD_START, (void*)payload, payloadSize);
+	memcpy(PAYLOAD_ADDRESS, (void *) payload, payloadSize);
 
-	uint64_t data = textSection->sh_offset;
-	memcpy(PAYLOAD_START + 41, &data, sizeof(data));
-	displayHexData("Data : ", PAYLOAD_START + 39, 10);
+	// Edit Mprotect hard-coded variable
+	int32_t textSectionAlignedAddress = textSection->sh_addr & ~(4096-1);
+	int32_t textSectionRelativeToMprotect = textSectionAlignedAddress - (PAYLOAD_OFFSET_IN_FILE + MPROTECT_DATA_OFFSET);
+	int32_t textSectionAlignedSize = ALIGN(textSection->sh_size + (textSection->sh_addr - textSectionAlignedAddress), 4096);
 
-	uint64_t dataSize = textSection->sh_size;
-	memcpy(PAYLOAD_START + 51, &dataSize, sizeof(dataSize));
-	displayHexData("Data size : ", PAYLOAD_START + 49, 10);
+	memcpy(PAYLOAD_ADDRESS + MPROTECT_DATA_OFFSET - 4, &textSectionRelativeToMprotect, 4);
+	memcpy(PAYLOAD_ADDRESS + MPROTECT_DATA_SIZE_OFFSET - 4, &textSectionAlignedSize, 4);
 
-	uint64_t keySize = KEY_SIZE;
-	memcpy(PAYLOAD_START + 68, &keySize, sizeof(keySize));
-	displayHexData("Key size : ", PAYLOAD_START + 66, 10);
+	// Edit RC4 hard-coded variable
+	uint32_t keySize = KEY_SIZE;
+	int32_t textSectionRelativeToRC4 = textSection->sh_addr - (PAYLOAD_OFFSET_IN_FILE + RC4_DATA_OFFSET);
+	memcpy(PAYLOAD_ADDRESS + RC4_DATA_OFFSET - 4, &textSectionRelativeToRC4, 4);
+	memcpy(PAYLOAD_ADDRESS + RC4_DATA_SIZE_OFFSET - 4, &textSection->sh_size, 4);
+	memcpy(PAYLOAD_ADDRESS + RC4_KEY_SIZE_OFFSET - 4, &keySize, 4);
 
-	uint64_t buffer = textSection->sh_offset;
-	memcpy(PAYLOAD_START + 78, &buffer, sizeof(buffer));
-	displayHexData("Buffer : ", PAYLOAD_START + 76, 10);
+	// Edit jump hard-coded variable
+	int32_t oldEntryRelativeToJump = ehdr->e_entry - (PAYLOAD_OFFSET_IN_FILE + PAYLOAD_JUMP_OFFSET);
+	memcpy(PAYLOAD_ADDRESS + PAYLOAD_JUMP_OFFSET - 4, &oldEntryRelativeToJump, 4);
 
-	int32_t jump = oldEntry - (ehdr->e_entry + 269);
-	memcpy(PAYLOAD_START + 265, &jump, sizeof(jump));
-	displayHexData("Jump : ", PAYLOAD_START + 264, 5);
+	// Fill data with encryption key
+	memcpy(PAYLOAD_ADDRESS_END - 0x100, encryptionKey, KEY_SIZE);
 
-	memcpy(PAYLOAD_START + 284, encryptionKey, KEY_SIZE);
-	displayHexData("Key : ", PAYLOAD_START + 284, KEY_SIZE);
+	// Set entry to "....WOODY...." print
+	ehdr->e_entry = PAYLOAD_OFFSET_IN_FILE + PAYLOAD_WOODY_OFFSET;
+	printf("New file entry : %#lX\n", ehdr->e_entry);
 
-	// Enlarge segment to contain payload
-	loadSegment->p_filesz += payloadSize;
-	loadSegment->p_memsz += payloadSize;*/
-
-	u_char *encryptionKey = generateEncryptionKey();
 	// Encrypt .text section
-	displayHexData("Before : ", (void*)ehdr + textSection->sh_offset, 32);
-	RC4((void*)ehdr + textSection->sh_offset, textSection->sh_size, encryptionKey, KEY_SIZE, (void*)ehdr + textSection->sh_offset);
-	displayHexData("After : ", (void*)ehdr + textSection->sh_offset, 32);
-	RC4((void*)ehdr + textSection->sh_offset, textSection->sh_size, encryptionKey, KEY_SIZE, (void*)ehdr + textSection->sh_offset);
-	displayHexData("After After : ", (void*)ehdr + textSection->sh_offset, 32);
+	RC4((void *)ehdr + textSection->sh_addr, textSection->sh_size, encryptionKey, KEY_SIZE);
 }

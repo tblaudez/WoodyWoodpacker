@@ -8,8 +8,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <string.h>
-#include <elf.h>
 #include <stdlib.h>
 #include "woody.h"
 
@@ -49,7 +47,7 @@ int main(int argc, char **argv) {
 	elfCommon(&fileInfo);
 
 	// Create and open destination file
-	if ((fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU)) == -1) {
+	if ((fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, 0744)) == -1) {
 		perror("open");
 		return 1;
 	}
@@ -71,19 +69,3 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 }
-
-
-
-
-
-
-
-
-
-
-/*
-
-
-
-	return 0;
-}*/

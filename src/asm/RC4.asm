@@ -1,88 +1,71 @@
-[BITS 64]
-DEFAULT REL
-
 global RC4
 
-section .bss
-	S: resb 256
-	T: resb 256
-
 section .text
+;   void RC4(u_char *buffer, size_t bufferSize, const u_char *encryptionKey, size_t keySize)
+;	RDI => buffer // RSI => bufferSize // RDX => encryptionKey // RCX = keySize
 RC4:
-	push r12					; Save preserved registers
-	push r13
-;	mov r11, S
-;	mov r12, T
-	lea r11, [S]				; Load address of S
-	lea r12, [T]				; Load address of T
-	xor r9, r9					; Set i to 0
+	enter 0x200,0	; [RSP, RSP+0x100] is T{"ABC123ABC123..."} // [RSP+0x100, RSP+0x200] is S{0,1,2,3...}
+	mov r9, rdx		; Copy RDX somewhere else
+	xor r8, r8		; R8 is counter {0..256}
 
-init_RC4:
-	push rdx
-	mov rax, r9
-	mov rdx, 0
-	div rcx
-	mov rax, rdx
-	pop rdx						; rax = i % key_len
+firstLoop:
+	mov byte [rsp+0x100+r8], r8b	; S[R8] = R8
 
-	mov r10b, byte [rdx + rax]
-	mov byte [r12 + r9], r10b	; T[i] = key[i % key_len]
-
-	mov [r11 + r9], r9			; S[i] = i
-
-	inc r9						; If i < 256, keep looping
-	cmp r9, 256
-	jl init_RC4
-	
-	xor r9, r9					; Counter i
-	xor r10, r10				; Variable j
-
-first_loop:
-	add r10b, byte [r11 + r9]	; j += S[i]
-	add r10b, byte [r12 + r9]	; j += T[i]
-	; j is automatically modulo-ed to 256 because of 8-bit register
-
-	mov cl, byte [r11 + r10]
-	mov dl, byte [r11 + r9]
-	mov byte [r11 + r10], dl
-	mov byte [r11 + r9], cl		; Swap S[i] and S[j]
-
-	inc r9						; If i < 256, keep looping
-	cmp r9, 256
-	jl first_loop
-
-	xor r9, r9					; Variable i
-	xor r10, r10				; Variable j
-	xor r12, r12				; Counter x
-
-second_loop:
-	inc r9b						; i = (i + 1) % 256
-	add r10b, [r11 + r9]		; j = (j + S[i]) % 256
-	; i and j are automatically modulo-ed to 256 because of 8-bit registers
-
-	mov cl, byte [r11 + r10]
-	mov dl, byte [r11 + r9]
-	mov byte [r11 + r10], dl
-	mov byte [r11 + r9], cl		; Swap S[i] and S[j]
-
-	xor r13, r13
-	mov r13b, byte [r11 + r9]
-	add r13b, byte [r11 + r10]	; r13 = (S[i] + S[j]) % 256
-	; r13b is automatically modulo-ed to 256 because of 8-bit registers
-
-	xor rcx, rcx
-	mov cl, byte [rdi + r12]	; cl = data[x]
+	mov rax, r8
 	xor rdx, rdx
-	mov dl, byte [r11 + r13]	; dl =  S[(S[i] + S[j]) % 256]
+	div rcx			; RDX = R8 % keySize
 
-	xor cl, dl					; cl = data[x] ^ S[(S[i] + S[j]) % 256]
-	mov byte [r8 + r12], cl		; result[x] = data[x] ^ S[(S[i] + S[j]) % 256]
+	mov al, byte [r9+rdx]
+	mov byte [rsp+r8], al	; T[i] = key[R8 % keySize]
 
-	inc r12						; If x < data_len, keep looping
-	cmp r12, rsi
-	jl second_loop
+	inc r8
+	cmp r8, 0x100
+	jl firstLoop		; Loop until i == 256
+
+	xor r8, r8		; We set counters back to 0
+	xor r9, r9		; RCX and RDX are not needed anymore
+
+secondLoop:
+	add r8b, byte [rsp+0x100+r9]	; R8 += S[R9]
+	add r8b, byte [rsp+r9]			; R8 += T[R9] // Result is modulo-ed to 256 because of 8-bit register
+
+	mov cl, byte [rsp+0x100+r8]		; CL = S[R8]
+	mov dl, byte [rsp+0x100+r9]		; DL = S[R9]
+	mov byte [rsp+0x100+r8], dl
+	mov byte [rsp+0x100+r9], cl		; Swap S[R8] and S[R9]
+
+	inc r9
+	cmp r9, 0x100
+	jl secondLoop					; Loop until i == 256
+
+	xor r8, r8
+	xor r9, r9
+	xor r11, r11
+
+thirdLoop:
+	inc r9b							; R9 = (R9 + 1) % 256
+	add r8b, [rsp+0x100+r9]			; R8 = (R8 + S[R9]) % 256 // R8 and R9 are modulo-ed to 256 because of 8-bit register
+
+	mov cl, byte [rsp+0x100+r8]
+	mov dl, byte [rsp+0x100+r9]
+	mov byte [rsp+0x100+r9], cl
+	mov byte [rsp+0x100+r8], dl		; Swap S[R8] and S[R9]
+
+	mov r10b, byte [rsp+0x100+r9]
+	add r10b, byte [rsp+0x100+r8]
+	movsx r10, r10b					; R10 = (S[R8] + S[R9]) % 256 // R10 is modulo-ed to 256 because of 8-bit register
+
+	mov cl, byte [rdi + r11]		; CL = buffer[R11]
+	mov dl, byte [rsp+0x100+r10]	; DL = S[(S[R8] + S[R9]) % 256] // RDX is modulo-ed to 256 because of 8-bit register
+
+	xor cl, dl						; CL = buffer[R11] ^ S[(S[R8] + S[R9]) % 256]
+	mov byte [rdi + r11], cl		; buffer[r11] = buffer[R11] ^ S[(S[R8] + S[R9]) % 256]
+
+	inc r11
+	cmp r11, rsi
+	jl thirdLoop					; Loop until R11 == bufferSize
 
 done:
-	pop r13						; Revert preserved registers
-	pop r12
+	leave
 	ret
+

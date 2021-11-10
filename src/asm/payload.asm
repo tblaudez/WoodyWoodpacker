@@ -1,39 +1,34 @@
-[BITS 64]
-DEFAULT REL
+global payload:function
+global payloadSize:data
 
-global _start
-
-section .data
-	woody: db "....WOODY....", 10, 0
-	data: dq 0x0
-	dataSize: dq 0x0
-	keySize: dq 0x0
-	buffer: dq 0x0
-	jump: dd 0x0
-
-section .bss
-	key: resb 256
-
-section .text
+payload:
 %include 'RC4.asm'
 
-_start:
-print_woody:
+section .text
+printWoody:
 	mov rax, 1
 	mov rdi, 1
-	mov rsi, woody
-	mov rdx, 15
+	lea rsi, [rel woody]
+	mov rdx, 14
 	syscall
-
-	mov rax, 60
-	xor rdi, rdi
+changeProtection:
+	mov rax, 10
+	lea rdi, [rel payload]			; Change to .text section address
+	mov rsi, 0xFFFFFFFF				; Change to .text section size
+	mov rdx, 0x7					; PROT_READ | PROT_WRITE | PROT_EXEC
 	syscall
-decrypt_text_section:
-	mov rdi, data
-	mov rsi, dataSize
-	mov rdx, key
-	mov rcx, keySize
-	mov r8, buffer
+decryptData:
+	lea rdi, [rel payload]			; Change to .text section address
+	mov rsi, 0xFFFFFFFF				; Change to .text section size
+	lea rdx, [rel encryptionKey]	; Fill with encryption key
+	mov	rcx, 0xFFFFFFFF				; Change to encryption key size
 	call RC4
-jump_to_old_entry:
-	jmp jump
+
+	jmp 0xFFFFFFFF
+payloadData:
+	woody: db "....WOODY....", 10
+	encryptionKey: times 0x100 db '@'
+end:
+
+section .data
+    payloadSize: dd end-payload

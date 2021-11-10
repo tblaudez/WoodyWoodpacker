@@ -11,28 +11,20 @@
 # **************************************************************************** #
 
 TARGET := woody_woodpacker
-PAYLOAD := payload
 
 CC ?= gcc
-CFLAGS ?= -I include/ -ggdb #-Wall -Wextra -Werror
+CFLAGS ?= -I include/ -ggdb -Wall -Wextra -Werror
 LDFLAGS ?=
 
 AS ?= nasm
-ASFLAGS ?= -felf64 -I src/asm/ -g -Fdwarf
+ASFLAGS ?= -felf64 -g -Fdwarf
 
 HEADERS := $(shell find include/ -name "*.h")
 C_SOURCES := $(shell find src/ -name "*.c")
-ASM_SOURCES := $(shell find src/ -name "RC4.asm")
+ASM_SOURCES := $(shell find src/ -name "*.asm")
 OBJECTS := $(C_SOURCES:.c=.o) $(ASM_SOURCES:.asm=.o)
 
-PAYLOAD_SOURCES := $(shell find src/ -name "payload.asm")
-PAYLOAD_OBJECTS := $(PAYLOAD_SOURCES:.asm=.o)
-
-
-all: $(TARGET) $(PAYLOAD)
-
-$(PAYLOAD): $(PAYLOAD_OBJECTS)
-	ld $(LDFLAGS) $(PAYLOAD_OBJECTS) -o $@
+all: $(TARGET)
 
 $(TARGET): $(OBJECTS) $(HEADERS)
 	$(CC) $(LDFLAGS) $(OBJECTS) -o $@
@@ -44,10 +36,10 @@ $(TARGET): $(OBJECTS) $(HEADERS)
 	$(AS) $(ASFLAGS) $< -o $@
 
 clean:
-	@rm -vf $(OBJECTS) $(PAYLOAD_OBJECTS)
+	@rm -vf $(OBJECTS)
 
 fclean: clean
-	@rm -vf $(TARGET) $(PAYLOAD)
+	@rm -vf $(TARGET)
 
 re: fclean all
 
