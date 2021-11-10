@@ -16,7 +16,7 @@ CC ?= gcc
 CFLAGS ?= -I include/ -I Libft/include -Wall -Wextra -Werror
 LDFLAGS ?=
 
-AS ?= nasm
+AS := nasm
 ASFLAGS ?= -felf64 -I src/asm
 
 LIBFT := Libft/libft.a
