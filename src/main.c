@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <stdlib.h>
 #include "woody.h"
+#include "libft.h"
 
 static t_file *getFileInfo(const char *fileName) {
 	static t_file fileInfo;
@@ -45,12 +46,12 @@ static t_file *getFileInfo(const char *fileName) {
 	return &fileInfo;
 }
 
-static void createWoody(const t_file *fileInfo) {
+static void createWoody(const t_file *fileInfo, const char *programName) {
 	int fd;
 
-	fputs("[+] Writing modified binary to 'woody'\n", stdout);
+	printf("[+] Writing modified binary to '%s'\n", programName);
 	// Create and open destination file
-	if ((fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, 0744)) == -1) {
+	if ((fd = open(programName, O_WRONLY | O_CREAT | O_TRUNC, 0744)) == -1) {
 		perror("[-] open");
 		exit(EXIT_FAILURE);
 	}
@@ -78,8 +79,8 @@ int main(int argc, char **argv) {
 
 	const t_file *fileInfo = getFileInfo(argv[1]);
 
-	elfCommon(fileInfo);
-	createWoody(fileInfo);
+	woodyWoodpacker(fileInfo);
+	createWoody(fileInfo, argc >= 3 ? argv[2] : "woody");
 
 	if (munmap((void *)fileInfo->mapping, (size_t)fileInfo->size) == -1) {
 		perror("[-] munmap");
