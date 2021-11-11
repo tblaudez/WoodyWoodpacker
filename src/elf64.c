@@ -21,7 +21,7 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 	// Section header offset too big or too little
 	if (SWAP64(ehdr->e_shoff) >= (fileInfo->size - sizeof(Elf64_Shdr)) ||
 		SWAP64(ehdr->e_shoff) < (sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr)) ||
-		(SWAP64(ehdr->e_shoff) + SWAP16(ehdr->e_shnum) * sizeof(Elf64_Shdr)) > fileInfo->size) {
+		(SWAP64(ehdr->e_shoff) + SWAP16(ehdr->e_shnum) * sizeof(Elf64_Shdr)) > (size_t)fileInfo->size) {
 		fputs("\n[-] Invalid section header table offset\n", stderr);
 		exit(EXIT_FAILURE);
 	}
@@ -33,7 +33,7 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 	}
 
 	// Section header number is 0 or more than file can hold
-	if (SWAP16(ehdr->e_shnum) == 0 || SWAP16(ehdr->e_shnum) * sizeof(Elf64_Shdr) > fileInfo->size) {
+	if (SWAP16(ehdr->e_shnum) == 0 || SWAP16(ehdr->e_shnum) * sizeof(Elf64_Shdr) > (size_t)fileInfo->size) {
 		fputs("\n[-] Invalid amount of section headers\n", stderr);
 		exit(EXIT_FAILURE);
 	}
@@ -42,7 +42,7 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 	// Program header offset too big or too little
 	if (SWAP64(ehdr->e_phoff) >= (fileInfo->size - sizeof(Elf64_Phdr)) ||
 		SWAP64(ehdr->e_phoff) < sizeof(Elf64_Ehdr) ||
-		(SWAP64(ehdr->e_phoff) + SWAP16(ehdr->e_phnum) * sizeof(Elf64_Phdr)) > fileInfo->size) {
+		(SWAP64(ehdr->e_phoff) + SWAP16(ehdr->e_phnum) * sizeof(Elf64_Phdr)) > (size_t)fileInfo->size) {
 		fputs("\n[-] Invalid program header table offset\n", stderr);
 		exit(EXIT_FAILURE);
 	}
@@ -54,7 +54,7 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 	}
 
 	// Program header number is 0 or more than file can hold
-	if (SWAP16(ehdr->e_phnum) == 0 || SWAP16(ehdr->e_phnum) * sizeof(Elf64_Phdr) > fileInfo->size) {
+	if (SWAP16(ehdr->e_phnum) == 0 || SWAP16(ehdr->e_phnum) * sizeof(Elf64_Phdr) > (size_t)fileInfo->size) {
 		fputs("\n[-] Invalid amount of program headers\n", stderr);
 		exit(EXIT_FAILURE);
 	}
@@ -62,7 +62,7 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 	const Elf64_Phdr *phdr = (void *) ehdr + SWAP64(ehdr->e_phoff);
 	for (int i = 0; i < SWAP16(ehdr->e_phnum) - 1; i++) {
 		if (SWAP64(phdr[i].p_filesz) > SWAP64(phdr[i].p_memsz) ||
-			(SWAP64(phdr[i].p_offset) + SWAP64(phdr[i].p_filesz)) > fileInfo->size) {
+			(SWAP64(phdr[i].p_offset) + SWAP64(phdr[i].p_filesz)) > (size_t)fileInfo->size) {
 			fputs("\n[-] One of the program headers has corrupted data\n", stderr);
 			exit(EXIT_FAILURE);
 		}
@@ -71,15 +71,15 @@ static void checkFileCorruption(const Elf64_Ehdr *ehdr, const t_file *fileInfo) 
 	/* SHRSTRTAB CHECKS */
 	const Elf64_Shdr *shdr = (void *) ehdr + SWAP64(ehdr->e_shoff);
 	if (SWAP16(ehdr->e_shstrndx) > SWAP16(ehdr->e_shnum) ||
-		(SWAP64(shdr[SWAP16(ehdr->e_shstrndx)].sh_offset) + SWAP16(ehdr->e_shentsize)) > fileInfo->size) {
+		(SWAP64(shdr[SWAP16(ehdr->e_shstrndx)].sh_offset) + SWAP16(ehdr->e_shentsize)) > (size_t)fileInfo->size) {
 		fputs("\n[-] Invalid section header string table index or offset\n", stderr);
 		exit(EXIT_FAILURE);
 	}
 
 	const uint64_t shdrstrtabOffset = SWAP64(shdr[SWAP16(ehdr->e_shstrndx)].sh_offset);
 	for (int i = 0; i < SWAP16(ehdr->e_shnum) - 1; i++) {
-		if (shdrstrtabOffset + SWAP32(shdr[i].sh_name) > fileInfo->size ||
-			(SWAP64(shdr[i].sh_offset) + SWAP64(shdr[i].sh_size)) > fileInfo->size) {
+		if (shdrstrtabOffset + SWAP32(shdr[i].sh_name) > (size_t)fileInfo->size ||
+			(SWAP64(shdr[i].sh_offset) + SWAP64(shdr[i].sh_size)) > (size_t)fileInfo->size) {
 			fputs("\n[-] One of the section headers has corrupted data\n", stderr);
 			exit(EXIT_FAILURE);
 		}
